@@ -14,7 +14,6 @@ export const NOTIFICATION_CHANNELS = ["email", "sms", "push"];
 
 export const NOTIFICATION_PRIORITIES = ["low", "medium", "high", "critical"];
 
-.
 const deliveryStatusSchema = new mongoose.Schema(
     {
         channel: {
