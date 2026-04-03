@@ -38,6 +38,13 @@ const userSchema = new mongoose.Schema(
             required: [true, "Name is required"],
             trim: true,
         },
+        username:{
+            type:String,
+            required: [true, "username is required"],
+            unique: true,
+            trim:true,
+            lowercase:true,
+        },
         email:{
             type: String,
             required: [true, "Email is required"],
@@ -46,10 +53,11 @@ const userSchema = new mongoose.Schema(
             lowercase:true,
             match: [/^\S+@\S+\.\S+$/, "Please enter a valid email address"],
         },
-        passwordHash:{
+        password: {
             type: String,
             required: [true, "Password is required"],
-            select:false
+            minlength: [6, "Password must be at least 6 characters"],
+            select: false
         },
         role: {
             type: String,
@@ -102,17 +110,26 @@ const userSchema = new mongoose.Schema(
 );
 
 userSchema.index({ flatId: 1, role: 1 });
+userSchema.index({ email: 1 }, { unique: true });
+userSchema.index({ username: 1 }, { unique: true });
+userSchema.index({ phone: 1 }, { unique: true });
 
-userSchema.pre("save",async function(next){
-    if(!this.isModified('passwordHash')){
-        return next();
+userSchema.pre("save", async function () {
+    if (this.isModified("email")) {
+        this.email = this.email.toLowerCase();
     }
-    this.passwordHash = await bcrypt.hash(this.passwordHash,10);
-    next();
+
+    if (this.isModified("username")) {
+        this.username = this.username.toLowerCase();
+    }
+
+    if (this.isModified("password")) {
+        this.password = await bcrypt.hash(this.password, 10);
+    }
 });
 
 userSchema.methods.comparePassword = async function (plainPassword) {
-    return bcrypt.compare(plainPassword, this.passwordHash);
+    return bcrypt.compare(plainPassword, this.password);
 };
 
 userSchema.methods.generateAccessToken = function () {
@@ -126,6 +143,9 @@ userSchema.methods.generateAccessToken = function () {
         process.env.ACCESS_TOKEN_SECRET,
         { expiresIn: process.env.ACCESS_TOKEN_EXPIRY || "1d" }
     );
+};
+userSchema.methods.isResetTokenExpired = function () {
+    return this.forgotPasswordTokenExpiry < Date.now();
 };
 
 userSchema.methods.generateRefreshToken = function(){
@@ -144,7 +164,7 @@ userSchema.methods.generateRefreshToken = function(){
     )
 }
 
-userSchema.methods.generateTemporaryToken = function(){
+userSchema.methods.generateResetToken = function(){
     const unHashedToken= crypto.randomBytes(20).toString("hex");
     
     const hashedToken = crypto
@@ -162,18 +182,13 @@ userSchema.methods.generateTemporaryToken = function(){
  * responses so sensitive fields never accidentally leak.
  */
 
-userSchema.methods.toPublicJSON = function () {
-    return {
-        _id:             this._id,
-        name:            this.name,
-        email:           this.email,
-        phone:           this.phone,
-        role:            this.role,
-        flatId:          this.flatId,
-        isEmailVerified: this.isEmailVerified,
-        createdAt:       this.createdAt,
-        updatedAt:       this.updatedAt,
-    };
+userSchema.methods.toJSON = function () {
+    const user = this.toObject();
+    delete user.password;
+    delete user.refreshToken;
+    delete user.forgotPasswordToken;
+    return user;
 };
 
-export const User = mongoose.model("User", userSchema);
+const User = mongoose.model("User", userSchema);
+export default User;
