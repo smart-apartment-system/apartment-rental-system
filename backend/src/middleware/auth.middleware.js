@@ -1,42 +1,31 @@
-// import jwt from "jsonwebtoken";
-// import { User } from "../models/user.model.js";
+import { ApiError } from "../utils/apiError.js";
+import { asyncHandler } from "../utils/asyncHandler.js";
+import jwt from 'jsonwebtoken';
+import User from "../models/User.model.js";
+import mongoose from "mongoose";
+import env from "../config/env.js";
 
-// // 🔐 Authenticate user (verify token)
-// export const authenticate = async (req, res, next) => {
-//   try {
-//     // 1️⃣ Get token from header
-//     const authHeader = req.headers.authorization;
+export const verifyJWT = asyncHandler(async (req, res, next)=>{
 
-//     if (!authHeader || !authHeader.startsWith("Bearer ")) {
-//       return res.status(401).json({
-//         success: false,
-//         message: "Unauthorized: No token provided",
-//       });
-//     // }
+    const token = req.cookies?.accessToken || req.header("Authorization")?.replace("Bearer ","");
+    if(!token){
+        throw new ApiError(401, "Access token is missing!");
+    }
 
-//     const token = authHeader.split(" ")[1];
+    try {
+        const decodedToken = jwt.verify(token,env.jwt.accessTokenSecret );
+        const user = await User.findById(decodedToken._id).select(
+            "-password -refreshToken -emailVerificationToken -emailVerificationTokenExpiry -forgotPasswordToken -forgotPasswordTokenExpiry "
+        );
 
-//     // 2️⃣ Verify token
-//     const decoded = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);
+        if(!user){
+            throw new ApiError(401, "User not found");
+        }
+        req.user = user;
+        next();
+    } catch (error) {
+        throw new ApiError(401, error?.message || "Invalid or expired access token"); 
+    }
+})
 
-//     // 3️⃣ Fetch user (optional but safer)
-//     const user = await User.findById(decoded._id).select("-passwordHash");
 
-//     if (!user) {
-//       return res.status(401).json({
-//         success: false,
-//         message: "Unauthorized: User not found",
-//       });
-//     }
-
-//     // 4️⃣ Attach user to request
-//     req.user = user;
-
-//     next();
-//   } catch (error) {
-//     return res.status(401).json({
-//       success: false,
-//       message: "Unauthorized: Invalid or expired token",
-//     });
-//   }
-// };
