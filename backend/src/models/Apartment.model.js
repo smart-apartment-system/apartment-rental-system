@@ -1,8 +1,7 @@
 import mongoose from "mongoose";
+import slugify from "slugify";
 
-// ─── Allowed amenities ────────────────────────────────────────────────────────
-// Centralised enum prevents "Gym" vs "gym" vs "GYM" inconsistencies.
-// Add to this list as needed — single source of truth for frontend dropdowns too.
+// ─── ENUMS ────────────────────────────────────────────────────────────
 export const AMENITY_OPTIONS = [
   "parking",
   "gym",
@@ -18,252 +17,237 @@ export const AMENITY_OPTIONS = [
   "visitor_parking",
 ];
 
-// ─── Address subdocument ──────────────────────────────────────────────────────
-// Structured address makes city/pincode/state individually queryable and
-// validatable — a flat string like "123 Main St, Mumbai" is opaque to queries.
+// ─── ADDRESS ──────────────────────────────────────────────────────────
 const addressSchema = new mongoose.Schema(
   {
-    line1: {
-      type:     String,
-      required: [true, "Address line 1 is required"],
-      trim:     true,
-    },
-    line2: {
-      type: String,
-      trim: true,
-    },
-    city: {
-      type:     String,
-      required: [true, "City is required"],
-      trim:     true,
-    },
-    state: {
-      type:     String,
-      required: [true, "State is required"],
-      trim:     true,
-    },
+    line1: { type: String, required: true, trim: true },
+    line2: { type: String, trim: true },
+    city: { type: String, required: true, trim: true, index: true },
+    state: { type: String, required: true, trim: true },
     pincode: {
-      type:     String,
-      required: [true, "Pincode is required"],
-      trim:     true,
-      match:    [/^\d{6}$/, "Pincode must be exactly 6 digits"],
+      type: String,
+      required: true,
+      match: [/^\d{6}$/, "Invalid pincode"],
     },
-    country: {
-      type:    String,
-      default: "India",
-      trim:    true,
-    },
-  },
-  { _id: false }  // embedded — no separate _id needed
-);
+    country: { type: String, default: "India" },
 
-// ─── Contact info subdocument ─────────────────────────────────────────────────
-// Society/building contact separate from the owner's personal profile.
-// Tenants need an emergency/maintenance number that isn't the owner's mobile.
-const contactInfoSchema = new mongoose.Schema(
-  {
-    phone: {
-      type:  String,
-      trim:  true,
-      match: [/^\+?[1-9]\d{7,14}$/, "Please enter a valid phone number"],
-    },
-    email: {
-      type:      String,
-      trim:      true,
-      lowercase: true,
-      match:     [/^\S+@\S+\.\S+$/, "Please enter a valid email address"],
-    },
-    emergencyPhone: {
-      type:  String,
-      trim:  true,
-      match: [/^\+?[1-9]\d{7,14}$/, "Please enter a valid phone number"],
+    // 🔥 NEW: Geo Location (for maps / nearby search)
+    location: {
+      type: {
+        type: String,
+        enum: ["Point"],
+        default: "Point",
+      },
+      coordinates: {
+        type: [Number], // [lng, lat]
+      },
     },
   },
   { _id: false }
 );
 
-// ─── Main apartment schema ────────────────────────────────────────────────────
+// ─── CONTACT ──────────────────────────────────────────────────────────
+const contactInfoSchema = new mongoose.Schema(
+  {
+    phone: { type: String },
+    email: { type: String, lowercase: true },
+    emergencyPhone: { type: String },
+  },
+  { _id: false }
+);
+
+// ─── MAIN SCHEMA ──────────────────────────────────────────────────────
 const apartmentSchema = new mongoose.Schema(
   {
     name: {
-      type:     String,
-      required: [true, "Apartment name is required"],
-      trim:     true,
+      type: String,
+      required: true,
+      trim: true,
     },
 
-    // FIX: was a flat String — now a structured subdocument
+    // 🔥 NEW: slug for SEO/search
+    slug: {
+      type: String,
+      unique: true,
+      index: true,
+    },
+
     address: {
-      type:     addressSchema,
-      required: [true, "Address is required"],
+      type: addressSchema,
+      required: true,
     },
 
     totalFloors: {
-      type:     Number,
-      required: [true, "Total floors is required"],
-      min:      [1,   "Must have at least 1 floor"],
-      max:      [163, "Exceeds maximum supported floors"],  // FIX: no upper bound before
+      type: Number,
+      required: true,
+      min: 1,
+      max: 200,
     },
 
     ownerId: {
-      type:     mongoose.Schema.Types.ObjectId,
-      ref:      "User",
-      required: [true, "Owner reference is required"],
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+      index: true,
     },
 
-    // FIX: was a free-form String array — now enum-guarded.
-    // Set type prevents duplicate entries ("gym" twice).
     amenities: {
-      type:    [String],
-      enum:    AMENITY_OPTIONS,
+      type: [String],
+      enum: AMENITY_OPTIONS,
       default: [],
-      set:     (arr) => [...new Set(arr)],  // deduplicate on assignment
+      set: (arr) => [...new Set(arr)],
     },
 
-    // Society registration / RERA number — uniquely identifies the property.
-    // FIX: was missing — two same-named apartments were indistinguishable.
     societyRegistrationNumber: {
-      type:   String,
-      trim:   true,
-      sparse: true,   // unique but optional (older buildings may not have one)
+      type: String,
+      trim: true,
       unique: true,
+      sparse: true,
     },
 
-    // Society/building contact — separate from owner's personal profile.
-    // FIX: was missing — tenants had no maintenance/emergency contact.
     contactInfo: {
-      type:    contactInfoSchema,
+      type: contactInfoSchema,
       default: () => ({}),
     },
 
-    // ── Occupancy counters ────────────────────────────────────────────────────
-    // FIX: was missing — dashboard showed occupancy by running expensive
-    // aggregations on the Flat collection on every request. These counters
-    // are updated by the flat service whenever a flat is added or a tenant
-    // is assigned/removed. Much cheaper to read.
-    totalFlats: {
-      type:    Number,
-      default: 0,
-      min:     0,
-    },
-    occupiedFlats: {
-      type:    Number,
-      default: 0,
-      min:     0,
+    // 🔥 Counters
+    totalFlats: { type: Number, default: 0 },
+    occupiedFlats: { type: Number, default: 0 },
+
+    isActive: {
+      type: Boolean,
+      default: true,
+      index: true,
     },
 
-    // FIX: soft delete — hard-deleting an apartment with active tenants is
-    // destructive. Mark inactive instead; filter it out in queries.
-    isActive: {
-      type:    Boolean,
-      default: true,
-    },
-    deactivatedAt: {
-      type: Date,
-    },
+    deactivatedAt: Date,
+    deletedAt: Date, // 🔥 NEW: soft delete tracking
   },
-  { timestamps: true }
+  {
+    timestamps: true,
+    toJSON: { virtuals: true },
+    toObject: { virtuals: true },
+  }
 );
 
-// ─── Indexes ──────────────────────────────────────────────────────────────────
-
-// FIX: was missing — "fetch all my apartments" did a full collection scan
-apartmentSchema.index({ ownerId: 1 });
-
-// Search apartments by city (for admin dashboard / dynamic pricing feature)
-apartmentSchema.index({ "address.city": 1 });
-
-// Compound: active apartments owned by a user (most common query pattern)
+// ─── INDEXES ──────────────────────────────────────────────────────────
 apartmentSchema.index({ ownerId: 1, isActive: 1 });
+apartmentSchema.index({ "address.city": 1 });
+apartmentSchema.index({ slug: 1 });
 
-
-// ─── Virtual ──────────────────────────────────────────────────────────────────
-
-// Derived occupancy rate — computed on read, not stored.
-// Access as apartment.occupancyRate (e.g. 0.75 = 75% occupied)
-apartmentSchema.virtual("occupancyRate").get(function () {
-  if (!this.totalFlats || this.totalFlats === 0) return 0;
-  return parseFloat((this.occupiedFlats / this.totalFlats).toFixed(2));
+// 🔥 FULL TEXT SEARCH
+apartmentSchema.index({
+  name: "text",
+  "address.city": "text",
+  "address.state": "text",
 });
 
-// Computed full address string — useful for display and PDF generation
-apartmentSchema.virtual("fullAddress").get(function () {
-  const a = this.address;
-  if (!a) return "";
-  const parts = [a.line1, a.line2, a.city, a.state, a.pincode, a.country];
-  return parts.filter(Boolean).join(", ");
-});
-
-// Include virtuals when converting to JSON (for API responses)
-apartmentSchema.set("toJSON",   { virtuals: true });
-apartmentSchema.set("toObject", { virtuals: true });
+// 🔥 GEO INDEX
+apartmentSchema.index({ "address.location": "2dsphere" });
 
 
-// ─── Pre-save hook ────────────────────────────────────────────────────────────
+// ─── PRE HOOKS ───────────────────────────────────────────────────────
 
-// Automatically set deactivatedAt timestamp when isActive is toggled off
+// 🔥 Auto slug generation
 apartmentSchema.pre("save", function (next) {
-  if (this.isModified("isActive") && !this.isActive && !this.deactivatedAt) {
+  if (this.isModified("name")) {
+    this.slug = slugify(this.name, { lower: true }) + "-" + Date.now();
+  }
+
+  // deactivate timestamp
+  if (this.isModified("isActive") && !this.isActive) {
     this.deactivatedAt = new Date();
   }
+
+  next();
+});
+
+// 🔥 Soft delete filter (global)
+apartmentSchema.pre(/^find/, function (next) {
+  this.where({ deletedAt: null });
   next();
 });
 
 
-// ─── Instance methods ─────────────────────────────────────────────────────────
+// ─── VIRTUALS ─────────────────────────────────────────────────────────
 
-/**
- * Increment occupiedFlats counter when a tenant is assigned to a flat.
- * Call this from flat.service.js instead of manually updating the counter.
- */
+apartmentSchema.virtual("occupancyRate").get(function () {
+  if (!this.totalFlats) return 0;
+  return +(this.occupiedFlats / this.totalFlats).toFixed(2);
+});
+
+apartmentSchema.virtual("fullAddress").get(function () {
+  const a = this.address;
+  return [a.line1, a.line2, a.city, a.state, a.pincode]
+    .filter(Boolean)
+    .join(", ");
+});
+
+
+// ─── METHODS ─────────────────────────────────────────────────────────
+
 apartmentSchema.methods.incrementOccupied = async function () {
-  if (this.occupiedFlats < this.totalFlats) {
-    this.occupiedFlats += 1;
-    await this.save();
-  }
+  await this.updateOne({ $inc: { occupiedFlats: 1 } });
 };
 
-/**
- * Decrement occupiedFlats counter when a tenant vacates.
- */
 apartmentSchema.methods.decrementOccupied = async function () {
-  if (this.occupiedFlats > 0) {
-    this.occupiedFlats -= 1;
-    await this.save();
-  }
+  await this.updateOne({ $inc: { occupiedFlats: -1 } });
 };
 
-/**
- * Soft-delete the apartment.
- * Preferred over hard delete — preserves historical bill and payment records.
- */
-apartmentSchema.methods.deactivate = async function () {
-  this.isActive      = false;
-  this.deactivatedAt = new Date();
+apartmentSchema.methods.incrementTotalFlats = async function () {
+  await this.updateOne({ $inc: { totalFlats: 1 } });
+};
+
+apartmentSchema.methods.decrementTotalFlats = async function () {
+  await this.updateOne({ $inc: { totalFlats: -1 } });
+};
+
+apartmentSchema.methods.softDelete = async function () {
+  this.deletedAt = new Date();
+  this.isActive = false;
   return this.save();
 };
 
-/**
- * Safe public representation for API responses.
- * Strips internal fields, adds computed virtuals.
- */
 apartmentSchema.methods.toPublicJSON = function () {
   return {
-    _id:                       this._id,
-    name:                      this.name,
-    address:                   this.address,
-    fullAddress:               this.fullAddress,
-    totalFloors:               this.totalFloors,
-    totalFlats:                this.totalFlats,
-    occupiedFlats:             this.occupiedFlats,
-    occupancyRate:             this.occupancyRate,
-    amenities:                 this.amenities,
-    contactInfo:               this.contactInfo,
-    societyRegistrationNumber: this.societyRegistrationNumber,
-    isActive:                  this.isActive,
-    ownerId:                   this.ownerId,
-    createdAt:                 this.createdAt,
-    updatedAt:                 this.updatedAt,
+    _id: this._id,
+    name: this.name,
+    slug: this.slug,
+    address: this.address,
+    fullAddress: this.fullAddress,
+    totalFloors: this.totalFloors,
+    totalFlats: this.totalFlats,
+    occupiedFlats: this.occupiedFlats,
+    occupancyRate: this.occupancyRate,
+    amenities: this.amenities,
+    contactInfo: this.contactInfo,
+    isActive: this.isActive,
+    ownerId: this.ownerId,
   };
 };
 
-export const Apartment = mongoose.model("Apartment", apartmentSchema);
+
+// ─── STATIC METHODS ───────────────────────────────────────────────────
+
+// 🔥 Search apartments
+apartmentSchema.statics.searchApartments = function (query) {
+  return this.find({
+    $text: { $search: query },
+  });
+};
+
+// 🔥 Nearby apartments (future maps feature)
+apartmentSchema.statics.getNearby = function (lng, lat, radius = 5000) {
+  return this.find({
+    "address.location": {
+      $near: {
+        $geometry: { type: "Point", coordinates: [lng, lat] },
+        $maxDistance: radius,
+      },
+    },
+  });
+};
+
+
+const Apartment = mongoose.model("Apartment", apartmentSchema);
+export default Apartment;

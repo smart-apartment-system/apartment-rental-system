@@ -9,6 +9,6 @@ app.use(express.json());
 app.use(morgan("dev"));
 app.use(cookieParser());
 
-app.use("/api/auth",authRouter);
+app.use("/api/v1/auth",authRouter);
 
 export default app;

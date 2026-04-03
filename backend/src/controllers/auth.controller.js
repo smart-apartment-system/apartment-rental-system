@@ -12,7 +12,6 @@ import jwt from "jsonwebtoken";
 
 
 export const registerUser = asyncHandler(async (req, res) => {
-
     const session = await mongoose.startSession();
     session.startTransaction();
 
@@ -359,14 +358,96 @@ export const refreshAccessToken = asyncHandler(async(req,res)=>{
 // Password Management
 
 export const forgotPassword = asyncHandler(async(req,res)=>{
+    const {email} = req.body;
 
+    if(!email){
+        throw new ApiError(400, "Email is required");
+    }
+
+    const user = await UserModel.findOne({email});
+    if(!user){
+        throw new ApiError(400, "User not found");
+    }
+
+    const otp = generateOtp(6);
+    const otpHash = crypto.createHash("sha256").update(otp).digest("hex");
+    
+    await otpModel.deleteMany({
+        userId: user._id,
+        type: "PASSWORD_RESET",
+    });
+
+    await otpModel.create({
+        userId: user._id,
+        otp: otpHash,
+        type: "PASSWORD_RESET",
+        expiresAt: new Date(Date.now() + 5 * 60 * 1000),
+    });
+
+    const html = getOtpHtml(otp, user.name);
+    await sendEmail(
+        user.email,
+        "Password Reset OTP",
+        `Your OTP is ${otp}`,
+        html
+    );
+    return res.json(
+        new ApiResponse(200, null, "OTP sent to email")
+    );
 });
 
 export const verifyForgotPasswordOtp = asyncHandler(async(req,res)=>{
+    
+    const { email, otp } = req.body;
+    
+    const user = await UserModel.findOne({email});
+    if(!user){
+        throw new ApiError(404, "User not found");
+    }
 
+    const otpDoc = await otpModel.findOne({
+        userId: user._id,
+        type: "PASSWORD_RESET",
+    });
+
+    if(!otpDoc){
+        throw new ApiError(400, "OTP not found");
+    }
+
+    const hashedOtp = crypto.createHash("sha256").update(otp).digest("hex");
+    if(otpDoc.otp !== hashedOtp || otpDoc.expiresAt < Date.now()){
+        throw new ApiError(400, "Invalid or expired OTP");
+    }
+
+    return res.json(new ApiResponse(200, null, "OTP verified"));
 });
 
 export const resetPassword = asyncHandler(async(req,res)=>{
+    const {email, otp, newPassword} = req.body;
 
+    const user = await UserModel.findOne({email}).select("+password");
+    if(!user){
+        throw new ApiError(404, "User not found");
+    }
+
+    const otpDoc = await otpModel.findOne({
+        userId: user._id,
+        type: "PASSWORD_RESET",
+    });
+
+    if(!otpDoc){
+        throw new ApiError(400, "OTP not found");
+    }
+
+    const hashedOtp = crypto.createHash("sha256").update(otp).digest("hex");
+    if (otpDoc.otp !== hashedOtp || otpDoc.expiresAt < Date.now()) {
+        throw new ApiError(400, "Invalid or expired OTP");
+    }
+
+    user.password = newPassword;
+    await user.save();
+
+    await otpModel.deleteOne({ _id: otpDoc._id });
+    return res.json(new ApiResponse(200, null, "Password reset successful"));
 });
 

@@ -13,13 +13,15 @@ const flatSchema = new mongoose.Schema(
       type: String,
       required: [true, "Flat number is required"],
       trim: true,
+      uppercase: true,
+      match: [/^[A-Z0-9-]+$/, "Invalid flat number format"],
     },
 
     floor: {
       type: Number,
       required: true,
       min: 0,
-      max: 163,
+      max: 200,
     },
 
     type: {
@@ -38,6 +40,7 @@ const flatSchema = new mongoose.Schema(
     isOccupied: {
       type: Boolean,
       default: false,
+      index: true,
     },
 
     baseRent: {
@@ -46,26 +49,76 @@ const flatSchema = new mongoose.Schema(
       min: 0,
     },
 
+    maintenanceCharge: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    securityDeposit: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    status: {
+      type: String,
+      enum: ["available", "occupied", "maintenance"],
+      default: "available",
+      index: true,
+    },
+
     isActive: {
       type: Boolean,
       default: true,
+      index: true,
+    },
+
+    deletedAt: {
+      type: Date,
+      default: null,
     },
   },
-  { timestamps: true }
+  {
+    timestamps: true,
+    toJSON: { virtuals: true },
+    toObject: { virtuals: true },
+  }
 );
 
-// 🔥 Prevent duplicate flat numbers in same apartment
+
+// 🔥 Compound Index
 flatSchema.index({ apartmentId: 1, flatNumber: 1 }, { unique: true });
 
 
-// 🔥 Auto-sync occupancy
+// 🔥 Auto Sync Occupancy + Status
 flatSchema.pre("save", function (next) {
   this.isOccupied = !!this.tenantId;
+
+  if (this.isOccupied) {
+    this.status = "occupied";
+  } else if (this.status !== "maintenance") {
+    this.status = "available";
+  }
+
   next();
 });
 
 
-// 🔥 Safe response
+// 🔥 Soft delete filter
+flatSchema.pre(/^find/, function (next) {
+  this.where({ deletedAt: null });
+  next();
+});
+
+
+// 🔥 Virtual: Total Rent
+flatSchema.virtual("totalRent").get(function () {
+  return this.baseRent + this.maintenanceCharge;
+});
+
+
+// 🔥 Public Response
 flatSchema.methods.toPublicJSON = function () {
   return {
     _id: this._id,
@@ -75,11 +128,27 @@ flatSchema.methods.toPublicJSON = function () {
     type: this.type,
     tenantId: this.tenantId,
     isOccupied: this.isOccupied,
+    status: this.status,
     baseRent: this.baseRent,
+    maintenanceCharge: this.maintenanceCharge,
+    totalRent: this.totalRent,
+    securityDeposit: this.securityDeposit,
     isActive: this.isActive,
     createdAt: this.createdAt,
     updatedAt: this.updatedAt,
   };
 };
 
-export const Flat = mongoose.model("Flat", flatSchema);
+
+// 🔥 Static: Get Available Flats
+flatSchema.statics.getAvailableFlats = function (apartmentId) {
+  return this.find({
+    apartmentId,
+    isOccupied: false,
+    status: "available",
+  });
+};
+
+
+const Flat = mongoose.model("Flat", flatSchema);
+export default Flat;
