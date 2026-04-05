@@ -42,6 +42,12 @@ const env = {
         refreshToken: process.env.GOOGLE_REFRESH_TOKEN || "",
         user: process.env.GOOGLE_USER || "",
     },
+
+    razorpay: {
+        razorpayKeyId: process.env.RAZORPAY_KEY_ID,
+        razorpayKeySecret: process.env.RAZORPAY_KEY_SECRET,
+        razorpayWebHookSecret: process.env.RAZORPAY_WEBHOOK_SECRET
+    }
 };
 
 export default env;

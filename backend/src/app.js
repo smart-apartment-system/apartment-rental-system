@@ -6,6 +6,8 @@ import helmet from "helmet";
 
 import authRouter from "./routes/auth.routes.js";
 import flatRouter from "./routes/flat.routes.js";
+import paymentRouter from "./routes/payment.routes.js";
+import billRouter from "./routes/bill.routes.js";
 
 const app = express();
 
@@ -28,6 +30,8 @@ app.use(morgan("dev"));
 
 app.use("/api/v1/auth", authRouter);
 app.use("/api/v1/flats", flatRouter);
+app.use("api/v1/payments",paymentRouter);
+app.use("/api/v1/bills", billRouter);
 
 /* ================== HEALTH CHECK ================== */
 
