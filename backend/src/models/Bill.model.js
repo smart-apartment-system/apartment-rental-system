@@ -16,10 +16,12 @@ const billSchema = new mongoose.Schema(
       index: true,
     },
 
+    // ✅ Validated format: "YYYY-MM"
     month: {
       type: String,
       required: true,
       trim: true,
+      match: [/^\d{4}-(0[1-9]|1[0-2])$/, "Month must be in YYYY-MM format"],
     },
 
     rentAmount: {
@@ -34,7 +36,7 @@ const billSchema = new mongoose.Schema(
       min: 0,
     },
 
-    maintainence: {
+    maintenance: {
       type: Number,
       default: 0,
       min: 0,
@@ -59,36 +61,72 @@ const billSchema = new mongoose.Schema(
       type: String,
       enum: ["pending", "paid", "late"],
       default: "pending",
+      index: true,
     },
 
     isActive: {
       type: Boolean,
       default: true,
+      index: true,
     },
   },
   { timestamps: true }
 );
 
-// 🔥 Prevent duplicate bill for same flat + month
-billSchema.index({ flatId: 1, month: 1 }, { unique: true });
+// Prevent duplicate bill per flat+tenant+month
+billSchema.index({ flatId: 1, tenantId: 1, month: 1 }, { unique: true });
 
+// ✅ Shared helper — calculates total and status from doc fields
+function computeDerivedFields(doc) {
+  doc.totalAmount =
+    (doc.rentAmount || 0) +
+    (doc.electricityBill || 0) +
+    (doc.maintenance || 0);
 
-// 🔥 Auto-calculate + status logic
+  if (doc.paidOn) {
+    doc.status = "paid";
+  } else if (doc.dueDate < new Date()) {
+    doc.status = "late";
+  } else {
+    doc.status = "pending";
+  }
+}
+
+// Pre-save: runs on create + bill.save()
 billSchema.pre("save", function (next) {
-  this.totalAmount =
-    this.rentAmount + this.electricityBill + this.maintainence;
+  computeDerivedFields(this);
+  next();
+});
 
-  if (this.paidOn) {
-    this.status = "paid";
-  } else if (this.dueDate < new Date()) {
-    this.status = "late";
+// ✅ Fixed: pre findOneAndUpdate now fetches the existing doc
+// so partial updates don't zero out other fields
+billSchema.pre("findOneAndUpdate", async function (next) {
+  const update = this.getUpdate();
+  const docToUpdate = await this.model.findOne(this.getQuery());
+
+  if (!docToUpdate) return next();
+
+  // Merge existing values with incoming update values
+  const rentAmount = update.rentAmount ?? docToUpdate.rentAmount;
+  const electricityBill = update.electricityBill ?? docToUpdate.electricityBill;
+  const maintenance = update.maintenance ?? docToUpdate.maintenance;
+  const paidOn = update.paidOn ?? docToUpdate.paidOn;
+  const dueDate = update.dueDate ?? docToUpdate.dueDate;
+
+  update.totalAmount = (rentAmount || 0) + (electricityBill || 0) + (maintenance || 0);
+
+  if (paidOn) {
+    update.status = "paid";
+  } else if (dueDate < new Date()) {
+    update.status = "late";
+  } else {
+    update.status = "pending";
   }
 
   next();
 });
 
-
-// 🔥 Safe API response
+// Consistent public shape used across all controllers
 billSchema.methods.toPublicJSON = function () {
   return {
     _id: this._id,
@@ -97,15 +135,14 @@ billSchema.methods.toPublicJSON = function () {
     month: this.month,
     rentAmount: this.rentAmount,
     electricityBill: this.electricityBill,
-    maintainence: this.maintainence,
+    maintenance: this.maintenance,
     totalAmount: this.totalAmount,
     dueDate: this.dueDate,
     paidOn: this.paidOn,
     status: this.status,
     isActive: this.isActive,
-    createdAt: this.createdAt,
-    updatedAt: this.updatedAt,
   };
 };
 
-export const Bill = mongoose.model("Bill", billSchema);
+const Bill = mongoose.model("Bill", billSchema);
+export default Bill;
