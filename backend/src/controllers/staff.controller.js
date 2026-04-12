@@ -70,7 +70,7 @@ export const getAllStaff= asyncHandler(async(req,res)=>{
 });
 
 export const getStaffByApartment = asyncHandler(async(req,res)=>{
-
+    
 });
 
 export const updateStaff = asyncHandler(async(req,res)=>{
