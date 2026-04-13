@@ -1,4 +1,4 @@
-import { Document } from "../models/document.model.js";
+import Document from "../models/Document.model.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { ApiError } from "../utils/apiError.js";
 import { ApiResponse } from "../utils/apiResponse.js";

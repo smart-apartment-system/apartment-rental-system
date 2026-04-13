@@ -1,25 +1,36 @@
-import { User } from "../models/user.model.js";
-import { Flat } from "../models/flat.model.js";
+import User from "../models/User.model.js";
 import { ApiError } from "../middleware/error.middleware.js";
 import bcrypt from "bcrypt";
 
 
 // 🔹 Get current logged-in user
 export const getCurrentUser = asyncHandler(async (req, res) => {
+
+
+  if (!req.user) {
+    throw new ApiError(401, "Unauthorized");
+  }
+
   return res.status(200).json({
     success: true,
-    data: req.user.toPublicJSON(),
+    data: req.user.toJSON(), 
   });
 });
 
 
 // 🔹 Get user by ID
 export const getUserById = asyncHandler(async (req, res) => {
-  const user = await User.findById(req.params.id);
+  const {userId} = req.params;
 
-  if (!user) {
+  if (!mongoose.Types.ObjectId.isValid(userId)) {
+    throw new ApiError(400, "Invalid user ID");
+  }
+
+  const user = await User.findById(userId);
+  if(!user){
     throw new ApiError(404, "User not found");
   }
+
 
   res.status(200).json({
     success: true,
