@@ -15,8 +15,7 @@ authRouter.get("/logout",verifyJWT,logoutUser);
 authRouter.get("/logout-all",verifyJWT,logoutUserAll);
 
 authRouter.post("/forgot-password", forgotPassword);
-authRouter.post("/v
-    erify-reset-otp", verifyForgotPasswordOtp);
+authRouter.post("/verify-reset-otp", verifyForgotPasswordOtp);
 authRouter.post("/reset-password",resetPassword);
 
 export default authRouter;

@@ -222,7 +222,9 @@ notificationSchema.statics.markAllAsRead = async function (userId) {
 
 // ─── Model Export ─────────────────────────────────────────────────────────────
 
-export const Notification = mongoose.model(
+const Notification = mongoose.model(
     "Notification",
     notificationSchema
 );
+
+export default Notification;

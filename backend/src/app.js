@@ -9,6 +9,7 @@ import flatRouter from "./routes/flat.routes.js";
 import paymentRouter from "./routes/payment.routes.js";
 import billRouter from "./routes/bill.routes.js";
 import visitorRouter from "./routes/visitor.routes.js";
+import userRouter from "./routes/user.routes.js";
 
 const app = express();
 
@@ -34,6 +35,7 @@ app.use("/api/v1/flats", flatRouter);
 app.use("api/v1/payments",paymentRouter);
 app.use("/api/v1/bills", billRouter);
 app.use("/api/v1/visitors", visitorRouter);
+app.use("/api/v1/user",userRouter);
 
 /* ================== HEALTH CHECK ================== */
 
